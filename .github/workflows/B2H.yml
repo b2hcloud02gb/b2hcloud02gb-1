@@ -1,0 +1,69 @@
+name: B2H
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Configure Core RDP Settings
+        shell: pwsh
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+            -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+            -Name "UserAuthentication" -Value 0 -Force
+          netsh advfirewall firewall delete rule name="RDP-Allow" 2>$null
+          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
+          Restart-Service TermService -Force
+      - name: Create RDP User
+        shell: pwsh
+        run: |
+          $chars = @{
+            Upper  = [char[]](65..90)
+            Lower  = [char[]](97..122)
+            Number = [char[]](48..57)
+          }
+          $pw = @()
+          $pw += $chars.Upper  | Get-Random -Count 3
+          $pw += $chars.Lower  | Get-Random -Count 3
+          $pw += $chars.Number | Get-Random -Count 3
+          $password = -join ($pw | Get-Random -Count $pw.Count)
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser "RDP" -Password $secure -AccountNeverExpires
+          Add-LocalGroupMember Administrators RDP
+          Add-LocalGroupMember "Remote Desktop Users" RDP
+          echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
+      - name: Install Tailscale
+        shell: pwsh
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          Invoke-WebRequest -Uri $url -OutFile tailscale.msi
+          Start-Process msiexec.exe -ArgumentList "/i tailscale.msi /quiet /norestart" -Wait
+      - name: Start Tailscale
+        shell: pwsh
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
+            --hostname=gh-rdp-${{ github.run_id }}
+          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+      - name: RDP Info
+        shell: pwsh
+        run: |
+          Write-Host "=========================="
+          Write-Host "RDP READY"
+          Write-Host "IP: $env:TS_IP"
+          Write-Host "User: RDP"
+          Write-Host "Password: $env:RDP_PASSWORD"
+          Write-Host "=========================="
+      - name: Keep Runner Alive
+        shell: pwsh
+        run: |
+          Write-Host "Keeping runner alive..."
+          while ($true) {
+            Start-Sleep -Seconds 300
+          }
