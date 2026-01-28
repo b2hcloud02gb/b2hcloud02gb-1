@@ -57,7 +57,7 @@ jobs:
           Write-Host "=========================="
           Write-Host "RDP READY"
           Write-Host "IP: $env:TS_IP"
-          Write-Host "User: B2H"
+          Write-Host "User: RDP"
           Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host "=========================="
       - name: Keep Runner Alive
